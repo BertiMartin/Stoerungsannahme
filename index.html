@@ -4,20 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Störungsannahme – Geräteservice</title>
-  <!-- React 18 + Babel Standalone -->
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-</head>
-<body>
-  <div id="root"></div>
-
-  <script type="text/babel" data-presets="react">
-    const { useState, useRef } = React;
-
-
-// ── Palette & globals ──────────────────────────────────────────────────────
-const CSS = `
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -339,8 +328,11 @@ input:focus, textarea:focus { border-color: var(--accent); background: #fff; }
 h2 { font-family: 'DM Serif Display', serif; font-size: 1.4rem; margin-bottom: 1rem; }
 .muted { color: var(--muted); font-size: .85rem; }
 .mt1 { margin-top: .5rem; }
-`;
-
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
 // ── Data ───────────────────────────────────────────────────────────────────
 
 const DEVICES = [
@@ -1532,676 +1524,677 @@ function getQuestionSetLang(deviceId, subCat, lang) {
 }
 
 
-// ── Main App ───────────────────────────────────────────────────────────────
-export default function App() {
-  // Steps: customer | device | subcategory | fault | questions | report | send
-  const [step, setStep] = useState("lang");
-  const [lang, setLang] = useState("de");
-  const t = (key) => UI[lang][key] || key;
-  const [customer, setCustomer] = useState({ geraeteNr:"", name:"", firma:"", einsatzort:"", telefon:"" });
-  const [errors, setErrors] = useState({});
-  const [deviceId, setDeviceId] = useState(null);
-  const [subCat, setSubCat] = useState(null); // elektro | diesel
-  const [faultId, setFaultId] = useState(null);
-  const [qaLog, setQaLog] = useState([]); // [{questionText, answerLabel, actionTaken, errorCode, photos}]
-  const [conclusion, setConclusion] = useState(null); // {text, type}
-  const [email, setEmail] = useState("");
-  const [bemerkung, setBemerkung] = useState("");
-  const [toast, setToast] = useState(null);
-  const [currentQId, setCurrentQId] = useState(null);
-  const [followUpState, setFollowUpState] = useState(null); // null | {phase:1|2, answer, q}
-  const [questionHistory, setQuestionHistory] = useState([]); // stack of {currentQId, qaLog, followUpState, showExtraInputs, extraCode, extraPhotos}
-  const [extraCode, setExtraCode] = useState("");
-  const [extraPhotos, setExtraPhotos] = useState([]); // base64 strings
-  const [showExtraInputs, setShowExtraInputs] = useState(false);
-  const [sonstigerText, setSonstigerText] = useState("");
-  const photoRef = useRef();
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+// ── App State ──────────────────────────────────────────────────────────────
+const state = {
+  step: "lang",
+  lang: "de",
+  customer: { geraeteNr:"", name:"", firma:"", einsatzort:"", telefon:"" },
+  errors: {},
+  deviceId: null,
+  subCat: null,
+  faultId: null,
+  qaLog: [],
+  conclusion: null,
+  email: "",
+  bemerkung: "",
+  toast: null,
+  currentQId: null,
+  followUpState: null,
+  questionHistory: [],
+  extraCode: "",
+  extraPhotos: [],
+  showExtraInputs: false,
+  sonstigerText: "",
+  toastTimer: null
+};
 
-  // ── customer validation ──
-  const validateCustomer = () => {
-    const e = {};
-    if (!customer.name.trim()) e.name = "Pflichtfeld";
-    if (!customer.firma.trim()) e.firma = "Pflichtfeld";
-    if (!customer.einsatzort.trim()) e.einsatzort = "Pflichtfeld";
-    if (!customer.telefon.trim()) e.telefon = "Pflichtfeld";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
+const t = (key) => (UI[state.lang] || UI.de)[key] || key;
 
-  // ── device select ──
-  const selectDevice = (id) => {
-    setDeviceId(id);
-    const dev = DEVICES.find(d => d.id === id);
-    if (dev.hasSub) setStep("subcategory");
-    else { setSubCat(null); setStep("fault"); }
-  };
+function setState(updates) {
+  Object.assign(state, updates);
+  render();
+}
 
-  // ── question navigation ──
-  const startFault = (fid) => {
-    setFaultId(fid);
-    setQaLog([]);
-    setConclusion(null);
-    setFollowUpState(null);
-    setExtraCode("");
-    setExtraPhotos([]);
-    setShowExtraInputs(false);
-    setQuestionHistory([]);
-    const qs = getQuestionSet(deviceId, subCat);
-    const fault = qs.faults.find(f => f.id === fid);
-    setCurrentQId(fault.questions[0].id);
-    setStep("questions");
-  };
-
-  const qs = deviceId ? getQuestionSetLang(deviceId, subCat, lang) : null;
-  const qMap = qs ? buildQMap(qs.faults) : {};
-  const currentFault = qs ? qs.faults.find(f => f.id === faultId) : null;
-  const currentQ = currentQId ? qMap[currentQId] : null;
-
-  // Get next question id (linear fallback)
-  const getNextQId = (q) => {
-    if (!currentFault) return null;
-    const idx = currentFault.questions.findIndex(x => x.id === q.id);
-    if (idx >= 0 && idx < currentFault.questions.length - 1) return currentFault.questions[idx + 1].id;
-    return null;
-  };
-
-  const logQA = (qText, ansLabel, action, code, photos) => {
-    setQaLog(prev => [...prev, { questionText: qText, answerLabel: ansLabel, actionTaken: action || null, errorCode: code || "", photos: photos || [] }]);
-  };
-
-  const saveHistory = (currentQaLog) => {
-    setQuestionHistory(prev => [...prev, {
-      currentQId,
-      qaLog: currentQaLog !== undefined ? [...currentQaLog] : [...qaLog],
-      followUpState,
-      showExtraInputs,
-      extraCode,
-      extraPhotos: [...extraPhotos]
-    }]);
-  };
-
-  const goBack = () => {
-    if (questionHistory.length === 0) {
-      setStep("fault");
-      setQaLog([]);
-      setFollowUpState(null);
-      setShowExtraInputs(false);
-      setExtraCode("");
-      setExtraPhotos([]);
-      return;
-    }
-    const prev = questionHistory[questionHistory.length - 1];
-    setQuestionHistory(h => h.slice(0, -1));
-    setCurrentQId(prev.currentQId);
-    setQaLog(prev.qaLog);
-    setFollowUpState(prev.followUpState);
-    setShowExtraInputs(prev.showExtraInputs);
-    setExtraCode(prev.extraCode);
-    setExtraPhotos(prev.extraPhotos);
-    setConclusion(null);
-    if (step === "report") setStep("questions");
-  };
-
-  const handleAnswer = (q, ans) => {
-    if (followUpState) {
-      handleFollowUpAnswer(q, ans);
-      return;
-    }
-
-    const hasAction = !!ans.action;
-    const hasFollowUp = ans.followUp;
-
-    // Save state BEFORE any changes – pass current qaLog explicitly
-    saveHistory(qaLog);
-
-    if (ans.conclusion) {
-      logQA(q.text, ans.label, null, extraCode, extraPhotos);
-      setConclusion({ text: ans.conclusion, type: ans.conclusionType });
-      setStep("report");
-      return;
-    }
-
-    if (hasAction && hasFollowUp) {
-      logQA(q.text, ans.label, ans.actionBtn || ans.action, "", []);
-      setFollowUpState({ phase: 1, ans, q });
-      return;
-    }
-
-    // Simple next
-    logQA(q.text, ans.label, null, "", []);
-    setShowExtraInputs(false);
-    const nextId = ans.next || getNextQId(q);
-    if (nextId) setCurrentQId(nextId);
-    else { setConclusion({ text: "Fehlerdiagnose abgeschlossen", type: "ok" }); setStep("report"); }
-  };
-
-  const handleFollowUpAnswer = (q, ans) => {
-    const { phase, ans: origAns } = followUpState;
-
-    // Save state BEFORE any changes
-    saveHistory(qaLog);
-
-    if (phase === 1) {
-      if (ans.label === "Ja" || ans.label === "Ja – Funktion gegeben" || (typeof ans === "string" && ans === "ja")) {
-        if (origAns.followUpYesConclusion) {
-          logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", "Ja", null, "", []);
-          setFollowUpState(null);
-          setConclusion({ text: origAns.followUpYesConclusion, type: origAns.followUpYesConclusionType || "ok" });
-          setStep("report");
-        } else if (origAns.followUpYesFollowUp2) {
-          logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", "Ja", null, "", []);
-          setFollowUpState({ phase: 2, ans: origAns, q });
-        } else if (origAns.followUpYesNext) {
-          logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", "Ja", null, "", []);
-          setFollowUpState(null);
-          setCurrentQId(origAns.followUpYesNext);
-        }
-      } else {
-        if (origAns.followUpNoConclusion) {
-          logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", "Nein", null, "", []);
-          setFollowUpState(null);
-          setConclusion({ text: origAns.followUpNoConclusion, type: origAns.followUpNoConclusionType || "warn" });
-          setStep("report");
-        } else if (origAns.followUpNoNext) {
-          logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", "Nein", null, "", []);
-          setFollowUpState(null);
-          setCurrentQId(origAns.followUpNoNext);
-        } else {
-          logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", "Nein", null, "", []);
-          setFollowUpState(null);
-          const nextId = getNextQId(q);
-          if (nextId) setCurrentQId(nextId);
-          else { setConclusion({ text: "Fehlerdiagnose abgeschlossen – Monteureinsatz planen", type: "warn" }); setStep("report"); }
-        }
+// ── Helpers ────────────────────────────────────────────────────────────────
+function getQS() {
+  return state.deviceId ? getQuestionSetLang(state.deviceId, state.subCat, state.lang) : null;
+}
+function getQMap() {
+  const qs = getQS();
+  return qs ? buildQMap(qs.faults) : {};
+}
+function getCurrentFault() {
+  const qs = getQS();
+  return qs ? qs.faults.find(f => f.id === state.faultId) : null;
+}
+function getCurrentQ() {
+  return state.currentQId ? getQMap()[state.currentQId] : null;
+}
+function getNextQId(q) {
+  const cf = getCurrentFault();
+  if (!cf) return null;
+  const idx = cf.questions.findIndex(x => x.id === q.id);
+  if (idx >= 0 && idx < cf.questions.length - 1) return cf.questions[idx+1].id;
+  return null;
+}
+function logQA(qText, ansLabel, action, code, photos) {
+  state.qaLog = [...state.qaLog, { questionText: qText, answerLabel: ansLabel, actionTaken: action || null, errorCode: code || "", photos: photos || [] }];
+}
+function saveHistory() {
+  state.questionHistory = [...state.questionHistory, {
+    currentQId: state.currentQId,
+    qaLog: [...state.qaLog],
+    followUpState: state.followUpState,
+    showExtraInputs: state.showExtraInputs,
+    extraCode: state.extraCode,
+    extraPhotos: [...state.extraPhotos]
+  }];
+}
+function showToast(msg) {
+  if (state.toastTimer) clearTimeout(state.toastTimer);
+  state.toast = msg;
+  state.toastTimer = setTimeout(() => { state.toast = null; render(); }, 3000);
+  render();
+}
+function resetAll() {
+  Object.assign(state, {
+    step:"customer", deviceId:null, subCat:null, faultId:null,
+    qaLog:[], conclusion:null, followUpState:null, extraCode:"", extraPhotos:[],
+    email:"", showExtraInputs:false, bemerkung:"", questionHistory:[], sonstigerText:"",
+    customer:{ geraeteNr:"", name:"", firma:"", einsatzort:"", telefon:"" }, errors:{}
+  });
+  render();
+}
+function validateCustomer() {
+  const e = {};
+  if (!state.customer.name.trim()) e.name = t("pflichtfeld");
+  if (!state.customer.firma.trim()) e.firma = t("pflichtfeld");
+  if (!state.customer.einsatzort.trim()) e.einsatzort = t("pflichtfeld");
+  if (!state.customer.telefon.trim()) e.telefon = t("pflichtfeld");
+  state.errors = e;
+  return Object.keys(e).length === 0;
+}
+function selectDevice(id) {
+  state.deviceId = id;
+  const dev = (state.lang === "en" ? DEVICES_EN : DEVICES).find(d => d.id === id);
+  if (dev.hasSub) state.step = "subcategory";
+  else { state.subCat = null; state.step = "fault"; }
+  render();
+}
+function startFault(fid) {
+  state.faultId = fid;
+  state.qaLog = []; state.conclusion = null; state.followUpState = null;
+  state.extraCode = ""; state.extraPhotos = []; state.showExtraInputs = false;
+  state.questionHistory = [];
+  const qs = getQS();
+  const fault = qs.faults.find(f => f.id === fid);
+  state.currentQId = fault.questions[0].id;
+  state.step = "questions";
+  render();
+}
+function goBack() {
+  if (state.questionHistory.length === 0) {
+    state.step = "fault"; state.qaLog = []; state.followUpState = null;
+    state.showExtraInputs = false; state.extraCode = ""; state.extraPhotos = [];
+    render(); return;
+  }
+  const prev = state.questionHistory[state.questionHistory.length-1];
+  state.questionHistory = state.questionHistory.slice(0,-1);
+  state.currentQId = prev.currentQId; state.qaLog = prev.qaLog;
+  state.followUpState = prev.followUpState; state.showExtraInputs = prev.showExtraInputs;
+  state.extraCode = prev.extraCode; state.extraPhotos = prev.extraPhotos;
+  state.conclusion = null;
+  if (state.step === "report") state.step = "questions";
+  render();
+}
+function handleAnswer(q, ans) {
+  if (state.followUpState) { handleFollowUpAnswer(q, ans); return; }
+  saveHistory();
+  if (ans.conclusion) {
+    logQA(q.text, ans.label, null, state.extraCode, state.extraPhotos);
+    state.conclusion = { text: ans.conclusion, type: ans.conclusionType };
+    state.step = "report"; render(); return;
+  }
+  if (ans.action && ans.followUp) {
+    logQA(q.text, ans.label, ans.actionBtn || ans.action, "", []);
+    state.followUpState = { phase: 1, ans, q };
+    render(); return;
+  }
+  logQA(q.text, ans.label, null, "", []);
+  state.showExtraInputs = false;
+  const nextId = ans.next || getNextQId(q);
+  if (nextId) state.currentQId = nextId;
+  else { state.conclusion = { text: t("diagnoseAbgeschlossen") || "Fehlerdiagnose abgeschlossen", type: "ok" }; state.step = "report"; }
+  render();
+}
+function handleFollowUpAnswer(q, ans) {
+  const { phase, ans: origAns } = state.followUpState;
+  saveHistory();
+  const isJa = ans.label === "Ja" || (ans.label && ans.label.startsWith("Ja")) || (ans.label && ans.label.startsWith("Yes"));
+  if (phase === 1) {
+    if (isJa) {
+      if (origAns.followUpYesConclusion) {
+        logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", ans.label, null, "", []);
+        state.followUpState = null;
+        state.conclusion = { text: origAns.followUpYesConclusion, type: origAns.followUpYesConclusionType || "ok" };
+        state.step = "report";
+      } else if (origAns.followUpYesFollowUp2) {
+        logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", ans.label, null, "", []);
+        state.followUpState = { phase: 2, ans: origAns, q };
+      } else if (origAns.followUpYesNext) {
+        logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", ans.label, null, "", []);
+        state.followUpState = null;
+        state.currentQId = origAns.followUpYesNext;
       }
-    } else if (phase === 2) {
-      if (ans.label === "Ja" || ans.label.startsWith("Ja")) {
-        const res = origAns.followUpYesFollowUp2Yes;
-        logQA(origAns.followUpYesFollowUp2Text, "Ja", null, "", []);
-        setFollowUpState(null);
-        if (res.conclusion) { setConclusion({ text: res.conclusion, type: res.conclusionType }); setStep("report"); }
-        else if (res.next) setCurrentQId(res.next);
-      } else {
-        const res = origAns.followUpYesFollowUp2No;
-        logQA(origAns.followUpYesFollowUp2Text, "Nein", null, "", []);
-        setFollowUpState(null);
-        if (res.conclusion) { setConclusion({ text: res.conclusion, type: res.conclusionType }); setStep("report"); }
-        else if (res.next) setCurrentQId(res.next);
-        else { const nextId = getNextQId(q); if (nextId) setCurrentQId(nextId); else { setConclusion({ text: "Fehlerdiagnose abgeschlossen – Monteureinsatz planen", type: "warn" }); setStep("report"); } }
-      }
-    }
-  };
-
-  const handlePhotoUpload = (e) => {
-    const files = Array.from(e.target.files);
-    files.forEach(f => {
-      const reader = new FileReader();
-      reader.onload = (ev) => setExtraPhotos(prev => [...prev, ev.target.result]);
-      reader.readAsDataURL(f);
-    });
-  };
-
-  const handleFinalAnswer = (q, ans) => {
-    saveHistory(qaLog);
-    // For last question with extraCode / extraPhoto
-    logQA(q.text, ans.label, null, extraCode, extraPhotos);
-    if (ans.conclusion) {
-      setConclusion({ text: ans.conclusion, type: ans.conclusionType });
     } else {
-      setConclusion({ text: "Fehlerdiagnose abgeschlossen – Monteureinsatz planen", type: "warn" });
+      if (origAns.followUpNoConclusion) {
+        logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", ans.label, null, "", []);
+        state.followUpState = null;
+        state.conclusion = { text: origAns.followUpNoConclusion, type: origAns.followUpNoConclusionType || "warn" };
+        state.step = "report";
+      } else if (origAns.followUpNoNext) {
+        logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", ans.label, null, "", []);
+        state.followUpState = null;
+        state.currentQId = origAns.followUpNoNext;
+      } else {
+        logQA(origAns.followUpText || "Ist die Funktion jetzt gegeben?", ans.label, null, "", []);
+        state.followUpState = null;
+        const nextId = getNextQId(q);
+        if (nextId) state.currentQId = nextId;
+        else { state.conclusion = { text: "Fehlerdiagnose abgeschlossen – Monteureinsatz planen", type: "warn" }; state.step = "report"; }
+      }
     }
-    setStep("report");
-  };
+  } else if (phase === 2) {
+    if (isJa) {
+      const res = origAns.followUpYesFollowUp2Yes;
+      logQA(origAns.followUpYesFollowUp2Text, ans.label, null, "", []);
+      state.followUpState = null;
+      if (res.conclusion) { state.conclusion = { text: res.conclusion, type: res.conclusionType }; state.step = "report"; }
+      else if (res.next) state.currentQId = res.next;
+    } else {
+      const res = origAns.followUpYesFollowUp2No;
+      logQA(origAns.followUpYesFollowUp2Text, ans.label, null, "", []);
+      state.followUpState = null;
+      if (res.conclusion) { state.conclusion = { text: res.conclusion, type: res.conclusionType }; state.step = "report"; }
+      else if (res.next) state.currentQId = res.next;
+      else { const nextId = getNextQId(q); if (nextId) state.currentQId = nextId; else { state.conclusion = { text: "Fehlerdiagnose abgeschlossen – Monteureinsatz planen", type: "warn" }; state.step = "report"; } }
+    }
+  }
+  render();
+}
+function handleFinalAnswer(q, ans) {
+  saveHistory();
+  logQA(q.text, ans.label, null, state.extraCode, state.extraPhotos);
+  if (ans.conclusion) state.conclusion = { text: ans.conclusion, type: ans.conclusionType };
+  else state.conclusion = { text: "Fehlerdiagnose abgeschlossen – Monteureinsatz planen", type: "warn" };
+  state.step = "report"; render();
+}
+function buildMailBody() {
+  const isEn = state.lang === "en";
+  const devList = isEn ? DEVICES_EN : DEVICES;
+  const devLabel = devList.find(d => d.id === state.deviceId)?.label || state.deviceId;
+  const subLabel = state.subCat ? (state.subCat === "elektro" ? t("elektroLabel") : t("dieselLabel")) : "";
+  const faultLabel = state.faultId === "sonstiger" ? t("sonstigerFehler") : (getCurrentFault()?.label || "");
+  let body = isEn ? "FAULT REPORT – FINAL SUMMARY\n" : "STÖRUNGSANNAHME – ABSCHLUSSBERICHT\n";
+  body += `${isEn?"Date":"Datum"}: ${new Date().toLocaleString(isEn?"en-GB":"de-DE")}\n\n`;
+  body += isEn ? "CUSTOMER DATA\n" : "KUNDENDATEN\n";
+  body += `${isEn?"Device No.":"Gerätenummer"}: ${state.customer.geraeteNr||"–"}\n`;
+  body += `Name: ${state.customer.name}\n${isEn?"Company":"Firma"}: ${state.customer.firma}\n${isEn?"Location":"Einsatzort"}: ${state.customer.einsatzort}\n${isEn?"Phone":"Telefon"}: ${state.customer.telefon}\n\n`;
+  body += isEn ? "DEVICE\n" : "GERÄT\n";
+  body += `${devLabel}${subLabel?" – "+subLabel:""} | ${isEn?"Fault type":"Störungstyp"}: ${faultLabel}\n\n`;
+  body += isEn ? "DIAGNOSIS\n" : "DIAGNOSE\n";
+  state.qaLog.forEach((qa, i) => {
+    body += `\n${isEn?"Question":"Frage"} ${i+1}: ${qa.questionText}\n${isEn?"Answer":"Antwort"}: ${qa.answerLabel}`;
+    if (qa.actionTaken) body += `\n${isEn?"Action taken":"Maßnahme"}: ${qa.actionTaken}`;
+    if (qa.errorCode) body += `\n${isEn?"Error code":"Fehlercode"}: ${qa.errorCode}`;
+    if (qa.photos?.length > 0) body += `\n${isEn?"Photos":"Fotos"}: ${qa.photos.length} ${isEn?"image(s)":"Bild(er)"}`;
+    body += "\n";
+  });
+  body += `\n${isEn?"RESULT":"ERGEBNIS"}: ${state.conclusion?.text||""}`;
+  if (state.bemerkung.trim()) body += `\n\n${isEn?"CUSTOMER REMARKS":"BEMERKUNG"}:\n${state.bemerkung}`;
+  return body;
+}
+function handleSend() {
+  if (!state.email.trim()) { showToast("Bitte E-Mail-Adresse eingeben"); return; }
+  const body = buildMailBody();
+  const subject = encodeURIComponent("Störungsannahme – Abschlussbericht");
+  window.open(`mailto:${state.email}?subject=${subject}&body=${encodeURIComponent(body)}`);
+  showToast("E-Mail-Client geöffnet ✓");
+  state.step = "send"; render();
+}
 
-  // ── Send report ──
-  const buildMailBody = () => {
-    const isEn = lang === "en";
-    const devList = isEn ? DEVICES_EN : DEVICES;
-    const devLabel = devList.find(d => d.id === deviceId)?.label || deviceId;
-    const subLabel = subCat ? (subCat === "elektro" ? t("elektroLabel") : t("dieselLabel")) : "";
-    const faultLabel = faultId === "sonstiger" ? t("sonstigerFehler") : (currentFault?.label || "");
-    let body = isEn ? `FAULT REPORT – FINAL SUMMARY\n` : `STÖRUNGSANNAHME – ABSCHLUSSBERICHT\n`;
-    body += `${isEn?"Date":"Datum"}: ${new Date().toLocaleString(isEn?"en-GB":"de-DE")}\n\n`;
-    body += isEn ? `CUSTOMER DATA\n` : `KUNDENDATEN\n`;
-    body += `${isEn?"Device No.":"Gerätenummer"}: ${customer.geraeteNr || (isEn?"(not specified)":"(nicht angegeben)")}\n`;
-    body += `${isEn?"Name":"Name"}: ${customer.name}\n${isEn?"Company":"Firma"}: ${customer.firma}\n${isEn?"Location":"Einsatzort"}: ${customer.einsatzort}\n${isEn?"Phone":"Telefon"}: ${customer.telefon}\n\n`;
-    body += isEn ? `DEVICE\n` : `GERÄT\n`;
-    body += `${devLabel}${subLabel ? " – " + subLabel : ""} | ${isEn?"Fault type":"Störungstyp"}: ${faultLabel}\n\n`;
-    body += isEn ? `DIAGNOSIS\n` : `DIAGNOSE\n`;
-    qaLog.forEach((qa, i) => {
-      body += `\n${isEn?"Question":"Frage"} ${i+1}: ${qa.questionText}\n${isEn?"Answer":"Antwort"}: ${qa.answerLabel}`;
-      if (qa.actionTaken) body += `\n${isEn?"Action taken":"Maßnahme durchgeführt"}: ${qa.actionTaken}`;
-      if (qa.errorCode) body += `\n${isEn?"Error code":"Fehlercode"}: ${qa.errorCode}`;
-      if (qa.photos?.length > 0) body += `\n${isEn?"Photos":"Fotos"}: ${qa.photos.length} ${isEn?"image(s) attached":"Bild(er) angehängt"}`;
-      body += "\n";
+// ── Render ────────────────────────────────────────────────────────────────
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  if (attrs) {
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (k === 'className') el.className = v;
+      else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+      else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (k === 'htmlFor') el.setAttribute('for', v);
+      else if (v !== null && v !== undefined && v !== false) el.setAttribute(k, v);
     });
-    body += `\n${isEn?"RESULT":"ERGEBNIS"}: ${conclusion?.text || ""}`;
-    if (bemerkung.trim()) body += `\n\n${isEn?"CUSTOMER REMARKS":"BEMERKUNG DES KUNDEN"}:\n${bemerkung}`;
-    return body;
-  };
+  }
+  children.flat(Infinity).forEach(c => {
+    if (c === null || c === undefined || c === false) return;
+    el.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(c) : c);
+  });
+  return el;
+}
 
-  const handleSend = () => {
-    if (!email.trim()) { showToast("Bitte E-Mail-Adresse eingeben"); return; }
-    const body = buildMailBody();
-    const subject = encodeURIComponent("Störungsannahme – Abschlussbericht");
-    const bodyEnc = encodeURIComponent(body);
-    window.open(`mailto:${email}?subject=${subject}&body=${bodyEnc}`);
-    showToast("E-Mail-Client geöffnet ✓");
-    setStep("send");
-  };
-
-  const resetAll = () => {
-    setStep("customer"); setDeviceId(null); setSubCat(null); setFaultId(null);
-    setQaLog([]); setConclusion(null); setFollowUpState(null);
-    setExtraCode(""); setExtraPhotos([]); setEmail(""); setShowExtraInputs(false); setBemerkung(""); setQuestionHistory([]); setSonstigerText("");
-    setCustomer({ geraeteNr:"", name:"", firma:"", einsatzort:"", telefon:"" });
-  };
-
+function progressBar() {
   const STEPS = ["lang","customer","device","subcategory","fault","sonstiger","questions","report","send"];
-  const stepIdx = STEPS.indexOf(step);
-  const progress = ((stepIdx + 1) / STEPS.length) * 100;
+  const pct = ((STEPS.indexOf(state.step)+1) / STEPS.length) * 100;
+  return h('div', {className:'progress-bar'}, h('div', {className:'progress-bar-fill', style:{width:pct+"%"}}));
+}
 
-  // ── Render ──────────────────────────────────────────────────────────────
-  return (
-    <>
-      <style>{CSS}</style>
-      <div className="app-shell">
-        <div className="app-header">
-          <h1>{t("appTitle")}</h1>
-          <p>{t("appSub")}</p>
-        </div>
-
-        <div className="progress-bar"><div className="progress-bar-fill" style={{width: progress+"%"}} /></div>
-
-        {/* ── STEP: LANGUAGE ── */}
-        {step === "lang" && (
-          <div className="card" style={{textAlign:"center", padding:"3rem 2rem"}}>
-            <h2 style={{marginBottom:"2rem"}}>{t("langSelect")}</h2>
-            <div style={{display:"flex", gap:"1.5rem", justifyContent:"center", flexWrap:"wrap"}}>
-              <div className="device-card" style={{width:"180px", padding:"2rem 1rem", cursor:"pointer"}}
-                onClick={() => { setLang("de"); setStep("customer"); }}>
-                <div style={{fontSize:"3.5rem", marginBottom:".8rem"}}>🇩🇪</div>
-                <div className="label" style={{fontSize:"1.1rem"}}>Deutsch</div>
-              </div>
-              <div className="device-card" style={{width:"180px", padding:"2rem 1rem", cursor:"pointer"}}
-                onClick={() => { setLang("en"); setStep("customer"); }}>
-                <div style={{fontSize:"3.5rem", marginBottom:".8rem"}}>🇬🇧</div>
-                <div className="label" style={{fontSize:"1.1rem"}}>English</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: CUSTOMER ── */}
-        {step === "customer" && (
-          <div className="card">
-            <div className="step-label">{t("stepCustomer")}</div>
-            <h2>{t("stepCustomerTitle")}</h2>
-            <div className="field">
-              <label>{t("geraeteNr")} <span style={{color:"var(--muted)", fontWeight:400}}>{t("geraeteNrOpt")}</span></label>
-              <input type="text" placeholder="z. B. GL-12345" value={customer.geraeteNr}
-                onChange={e => setCustomer(p => ({...p, geraeteNr: e.target.value}))} />
-            </div>
-            {[["name",t("name")],["firma",t("firma")],["einsatzort",t("einsatzort")],["telefon",t("telefon")]].map(([k,l]) => (
-              <div className="field" key={k}>
-                <label>{l} <span className="req">*</span></label>
-                <input type={k==="telefon"?"tel":"text"} value={customer[k]}
-                  onChange={e => { setCustomer(p => ({...p, [k]: e.target.value})); setErrors(prev => ({...prev, [k]:undefined})); }}
-                  style={errors[k] ? {borderColor:"var(--warn)"} : {}} />
-                {errors[k] && <div className="field-error">⚠ {t("pflichtfeld")}</div>}
-              </div>
-            ))}
-            <div className="nav-row" style={{justifyContent:"space-between"}}>
-              <button className="btn btn-outline" onClick={() => setStep("lang")}>🌐 {lang === "de" ? "Sprache" : "Language"}</button>
-              <button className="btn btn-primary" onClick={() => { if (validateCustomer()) setStep("device"); }}>
-                {t("weiter")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: DEVICE ── */}
-        {step === "device" && (
-          <div className="card">
-            <div className="step-label">{t("stepDevice")}</div>
-            <h2>{t("stepDeviceTitle")}</h2>
-            <div className="device-grid">
-              {(lang === "en" ? DEVICES_EN : DEVICES).map(d => (
-                <div key={d.id} className={`device-card${d.urgent?" urgent":""}`} onClick={() => selectDevice(d.id)}>
-                  <div className="icon">{d.icon}</div>
-                  <div className="label">{d.label}</div>
-                  {d.code && <div className="code">{d.code}</div>}
-                  {d.urgent && <span className="urgency-badge">{t("dringend")}</span>}
-                </div>
-              ))}
-            </div>
-            <div className="nav-row">
-              <button className="btn btn-outline" onClick={() => setStep("customer")}>{t("zurueck")}</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: SUBCATEGORY ── */}
-        {step === "subcategory" && (
-          <div className="card">
-            <div className="step-label">{t("stepSub")}</div>
-            <h2>{t("stepSubTitle")}</h2>
-            <div className="sub-pills">
-              {["elektro","diesel"].map(s => (
-                <div key={s} className="pill" onClick={() => { setSubCat(s); setStep("fault"); }}>
-                  {t(s)}
-                </div>
-              ))}
-            </div>
-            <div className="nav-row">
-              <button className="btn btn-outline" onClick={() => setStep("device")}>{t("zurueck")}</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: FAULT TYPE ── */}
-        {step === "fault" && qs && (
-          <div className="card">
-            <div className="step-label">{deviceId==="GS"||deviceId==="GGGT" ? t("stepFault4") : t("stepFault3")}</div>
-            <h2>{t("stepFaultTitle")}</h2>
-            <div className="fault-list">
-              {qs.faults.map((f, i) => (
-                <div key={f.id} className="fault-item" onClick={() => { setFaultId(f.id); startFault(f.id); }}>
-                  <span className="fault-num">{i+1}</span>
-                  {f.label}
-                </div>
-              ))}
-              <div className="fault-item" onClick={() => { setFaultId("sonstiger"); setSonstigerText(""); setExtraPhotos([]); setStep("sonstiger"); }}>
-                <span className="fault-num" style={{background:"#e8e4dc", color:"var(--muted)"}}>✎</span>
-                {t("sonstigerFehler")}
-              </div>
-            </div>
-            <div className="nav-row">
-              <button className="btn btn-outline" onClick={() => { if (deviceId==="GS"||deviceId==="GGGT") setStep("subcategory"); else setStep("device"); }}>{t("zurueck")}</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: SONSTIGER FEHLER ── */}
-        {step === "sonstiger" && (
-          <div className="card">
-            <div className="step-label">{t("sonstigerFehler")}</div>
-            <h2>{t("stepSonstigerTitle")}</h2>
-            <p className="muted" style={{marginBottom:"1.2rem"}}>{t("stepSonstigerSub")}</p>
-            <div className="field">
-              <label>{t("fehlerbeschreibung")} <span className="req">*</span></label>
-              <textarea placeholder={t("fehlerbeschreibungPH")} value={sonstigerText}
-                onChange={e => setSonstigerText(e.target.value)} rows={5}
-                style={{width:"100%",padding:".65rem .9rem",border:"1.5px solid var(--border)",borderRadius:"var(--radius)",fontFamily:"inherit",fontSize:".9rem",background:"var(--bg)",color:"var(--text)",resize:"vertical",outline:"none"}}/>
-            </div>
-            <div className="field">
-              <label>{t("fotosHochladen")} <span style={{color:"var(--muted)",fontWeight:400}}>{t("fotosOpt")}</span></label>
-              <button className="btn btn-outline btn-sm" style={{marginTop:".3rem"}} onClick={() => photoRef.current?.click()}>{t("fotosHochladen")}</button>
-              <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhotoUpload}/>
-              {extraPhotos.length > 0 && <div className="img-preview" style={{marginTop:".5rem"}}>{extraPhotos.map((src,i) => <img key={i} src={src} alt="foto" className="img-thumb"/>)}</div>}
-            </div>
-            <div className="nav-row">
-              <button className="btn btn-outline" onClick={() => setStep("fault")}>{t("zurueck")}</button>
-              <button className="btn btn-primary" disabled={!sonstigerText.trim()} onClick={() => {
-                setQaLog([{questionText: lang==="en" ? "Fault description (Other fault)" : "Fehlerbeschreibung (Sonstiger Fehler)", answerLabel:sonstigerText, actionTaken:null, errorCode:"", photos:extraPhotos}]);
-                setConclusion({text: lang==="en" ? "Other fault – final report created" : "Sonstiger Fehler – Abschlussprotokoll erstellt", type:"warn"});
-                setStep("report");
-              }}>{t("berichtErstellen")}</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: QUESTIONS ── */}
-        {step === "questions" && currentQ && (
-          <div>
-            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:".8rem"}}>
-              <div className="step-label" style={{margin:0}}>
-                {t("stoerungstyp")}: <strong>{currentFault?.label}</strong>
-                {deviceId==="urgent" && <span className="urgency-badge">{t("dringend")}</span>}
-              </div>
-              <button className="btn btn-outline btn-sm" onClick={goBack}>{t("zurueck")}</button>
-            </div>
-
-            {/* Previous Q&A log */}
-            {qaLog.length > 0 && (
-              <div className="card" style={{background:"var(--surface2)", padding:"1rem 1.2rem"}}>
-                <div className="muted" style={{marginBottom:".5rem", fontWeight:600}}>{t("bisherigeAntworten")}</div>
-                {qaLog.map((qa, i) => (
-                  <div key={i} style={{marginBottom:".4rem", fontSize:".84rem"}}>
-                    <span style={{color:"var(--muted)"}}>F{i+1}:</span> {qa.questionText} → <strong>{qa.answerLabel}</strong>
-                    {qa.actionTaken && <span style={{color:"#27ae60"}}> ✓ {qa.actionTaken}</span>}
-                    {qa.errorCode && <span style={{color:"var(--accent)"}}> | Code: {qa.errorCode}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Current question */}
-            {!followUpState && (
-              <div className="question-block">
-                <div className="question-text">{currentQ.text}</div>
-
-                {/* Photo-only upload questions (e.g. Undichtigkeit) – show upload + answer buttons directly */}
-                {(currentQ.extraPhoto && !currentQ.extraCode) ? (
-                  <>
-                    <div className="extra-area">
-                      <button className="btn btn-outline btn-sm" onClick={() => photoRef.current?.click()}>📷 Fotos hochladen</button>
-                      <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhotoUpload} />
-                      {extraPhotos.length > 0 && (
-                        <div className="img-preview">
-                          {extraPhotos.map((src, i) => <img key={i} src={src} alt="foto" className="img-thumb" />)}
-                        </div>
-                      )}
-                    </div>
-                    <div className="answer-btns" style={{marginTop:"1rem"}}>
-                      {currentQ.answers.map((ans, i) => {
-                        const isJa = ans.label.startsWith("Ja");
-                        const isNein = ans.label.startsWith("Nein") || ans.label.startsWith("Ohne") || ans.label.startsWith("Continue");
-                        const cls = isJa ? "ja" : isNein ? "nein" : "other";
-                        return (
-                          <button key={i} className={`ans-btn ${cls}`} onClick={() => handleFinalAnswer(currentQ, ans)}>{ans.label}</button>
-                        );
-                      })}
-                    </div>
-                  </>
-
-                ) : (currentQ.extraCode || currentQ.extraPhoto) ? (
-                  /* Display-error questions: show Ja/Nein first, then inputs only after Ja */
-                  <>
-                    {!showExtraInputs && (
-                      <div className="answer-btns">
-                        <button className="ans-btn ja" onClick={() => setShowExtraInputs(true)}>Ja</button>
-                        <button className="ans-btn nein" onClick={() => {
-                          logQA(currentQ.text, "Nein", null, "", []);
-                          const neinAns = currentQ.answers.find(a => a.label.startsWith("Nein"));
-                          if (neinAns?.conclusion) { setConclusion({ text: neinAns.conclusion, type: neinAns.conclusionType }); setStep("report"); }
-                        }}>Nein</button>
-                      </div>
-                    )}
-                    {showExtraInputs && (
-                      <>
-                        <div className="extra-area">
-                          {currentQ.extraCode && (
-                            <input type="text" placeholder={t("fehlercodePH")} value={extraCode}
-                              onChange={e => setExtraCode(e.target.value)} />
-                          )}
-                          {currentQ.extraPhoto && (
-                            <>
-                              <button className="btn btn-outline btn-sm" onClick={() => photoRef.current?.click()}>{t("fotosHochladen")}</button>
-                              <input ref={photoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handlePhotoUpload} />
-                              {extraPhotos.length > 0 && (
-                                <div className="img-preview">
-                                  {extraPhotos.map((src, i) => <img key={i} src={src} alt="foto" className="img-thumb" />)}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        <div style={{marginTop:"1rem"}}>
-                          <button className="btn btn-primary" onClick={() => {
-                            const jaAns = currentQ.answers.find(a => a.label.startsWith("Ja"));
-                            handleFinalAnswer(currentQ, jaAns || currentQ.answers[1]);
-                            setShowExtraInputs(false);
-                          }}>{t("diagnoseAbschliessen")}</button>
-                        </div>
-                      </>
-                    )}
-                  </>
-
-                ) : (
-                  /* Normal questions */
-                  <div className="answer-btns">
-                    {currentQ.answers.map((ans, i) => {
-                      const isJa = ans.label.startsWith("Ja");
-                      const isNein = ans.label.startsWith("Nein");
-                      const cls = isJa ? "ja" : isNein ? "nein" : "other";
-                      return (
-                        <button key={i} className={`ans-btn ${cls}`} onClick={() => handleAnswer(currentQ, ans)}>{ans.label}</button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Follow-up state */}
-            {followUpState && followUpState.phase === 1 && (
-              <div className="question-block">
-                <div className="action-banner">
-                  <strong>{t("massnahmeDurchfuehren")}</strong>
-                  {followUpState.ans.action}
-                  {followUpState.ans.actionBtn && (
-                    <div style={{marginTop:".5rem"}}>
-                      <button className="btn btn-outline btn-sm">✓ {followUpState.ans.actionBtn}</button>
-                    </div>
-                  )}
-                </div>
-                <div className="question-text" style={{marginTop:"1rem"}}>
-                  {followUpState.ans.followUpText || "Ist die Funktion jetzt gegeben?"}
-                </div>
-                <div className="answer-btns">
-                  <button className="ans-btn ja" onClick={() => handleFollowUpAnswer(followUpState.q, {label:"Ja"})}>Ja</button>
-                  <button className="ans-btn nein" onClick={() => handleFollowUpAnswer(followUpState.q, {label:"Nein"})}>Nein</button>
-                </div>
-              </div>
-            )}
-
-            {followUpState && followUpState.phase === 2 && (
-              <div className="question-block">
-                <div className="question-text">{followUpState.ans.followUpYesFollowUp2Text}</div>
-                <div className="answer-btns">
-                  <button className="ans-btn ja" onClick={() => handleFollowUpAnswer(followUpState.q, {label:"Ja"})}>Ja</button>
-                  <button className="ans-btn nein" onClick={() => handleFollowUpAnswer(followUpState.q, {label:"Nein"})}>Nein</button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── STEP: REPORT ── */}
-        {step === "report" && (
-          <div className="card">
-            <div className="step-label">{t("reportTitle")}</div>
-            <h2>{t("diagnoseAbgeschlossen")}</h2>
-
-            {conclusion && (
-              <div className={`conclusion-banner ${conclusion.type}`} style={{marginBottom:"1.5rem"}}>
-                {conclusion.type === "warn" ? "⚠ " : "✓ "}{conclusion.text}
-              </div>
-            )}
-
-            <div className="report-section">
-              <h3>{t("kundendaten")}</h3>
-              <div className="report-row"><span className="report-label">Gerätenummer</span><span className="report-val">{customer.geraeteNr || "–"}</span></div>
-              <div className="report-row"><span className="report-label">Name</span><span className="report-val">{customer.name}</span></div>
-              <div className="report-row"><span className="report-label">Firma</span><span className="report-val">{customer.firma}</span></div>
-              <div className="report-row"><span className="report-label">Einsatzort</span><span className="report-val">{customer.einsatzort}</span></div>
-              <div className="report-row"><span className="report-label">Telefon</span><span className="report-val">{customer.telefon}</span></div>
-            </div>
-
-            <div className="report-section">
-              <h3>{t("geraet")}</h3>
-              <div className="report-row"><span className="report-label">{t("geraetetyp")}</span><span className="report-val">{DEVICES.find(d=>d.id===deviceId)?.label}</span></div>
-              {subCat && <div className="report-row"><span className="report-label">{t("antrieb")}</span><span className="report-val">{subCat === "elektro" ? t("elektroLabel") : t("dieselLabel")}</span></div>}
-              <div className="report-row"><span className="report-label">{t("stoerungstyp")}</span><span className="report-val">{faultId === "sonstiger" ? "Sonstiger Fehler" : currentFault?.label}</span></div>
-            </div>
-
-            <div className="report-section">
-              <h3>{t("diagnoseprotokoll")}</h3>
-              {qaLog.map((qa, i) => (
-                <div key={i} style={{marginBottom:".9rem", paddingBottom:".9rem", borderBottom:"1px dotted var(--border)"}}>
-                  <div className="report-row"><span className="report-label">{t("frage")} {i+1}</span><span className="report-val">{qa.questionText}</span></div>
-                  <div className="report-row"><span className="report-label">{t("antwort")}</span><span className="report-val"><strong>{qa.answerLabel}</strong></span></div>
-                  {qa.actionTaken && <div className="report-row"><span className="report-label">{t("massnahme")}</span><span className="report-val" style={{color:"#27ae60"}}>{qa.actionTaken}</span></div>}
-                  {qa.errorCode && <div className="report-row"><span className="report-label">{t("fehlercode")}</span><span className="report-val">{qa.errorCode}</span></div>}
-                  {qa.photos?.length > 0 && (
-                    <div className="report-row">
-                      <span className="report-label">{t("fotos")}</span>
-                      <div className="img-preview">{qa.photos.map((src,j) => <img key={j} src={src} alt="foto" className="img-thumb" />)}</div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="report-section">
-              <h3>{t("ergebnis")}</h3>
-              <div className={`conclusion-banner ${conclusion?.type}`}>{conclusion?.type==="ok"?"✓ ":"⚠ "}{conclusion?.text}</div>
-            </div>
-
-            {bemerkung.trim() && (
-              <div className="report-section">
-                <h3>{t("bemerkungenTitle")}</h3>
-                <div style={{background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius)", padding:"1rem", fontSize:".9rem", lineHeight:"1.6", whiteSpace:"pre-wrap"}}>{bemerkung}</div>
-              </div>
-            )}
-
-            <div style={{marginTop:"1.5rem"}}>
-              <label>{t("bemerkungen")} <span style={{color:"var(--muted)", fontWeight:400}}>{t("bemerkungenOpt")}</span></label>
-              <textarea
-                placeholder={t("bemerkungenPH")}
-                value={bemerkung}
-                onChange={e => setBemerkung(e.target.value)}
-                rows={4}
-                style={{marginTop:".3rem", width:"100%", padding:".65rem .9rem", border:"1.5px solid var(--border)", borderRadius:"var(--radius)", fontFamily:"inherit", fontSize:".9rem", background:"var(--bg)", color:"var(--text)", resize:"vertical", outline:"none"}}
-              />
-            </div>
-
-            <div style={{marginTop:"1.5rem"}}>
-              <label>{t("sendAn")} <span className="req">*</span></label>
-              <input type="email" placeholder="kundendienst@firma.de" value={email}
-                onChange={e => setEmail(e.target.value)} style={{marginTop:".3rem"}} />
-            </div>
-
-            <div className="nav-row">
-              <button className="btn btn-outline" onClick={goBack}>{t("zurueck")}</button>
-              <button className="btn btn-outline" onClick={resetAll}>{t("neueMeldung")}</button>
-              <button className="btn btn-success" onClick={handleSend}>{t("berichtSenden")}</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP: SEND DONE ── */}
-        {step === "send" && (
-          <div className="card" style={{textAlign:"center", padding:"3rem 2rem"}}>
-            <div style={{fontSize:"3rem", marginBottom:"1rem"}}>✅</div>
-            <h2>{t("sendDoneTitle")}</h2>
-            <p className="muted" style={{margin:"1rem 0"}}>{t("sendDoneSub")} <strong>{email}</strong> {t("sendDoneSub2")}</p>
-            <button className="btn btn-primary" style={{marginTop:"1rem"}} onClick={resetAll}>{t("neueStorung")}</button>
-          </div>
-        )}
-
-        {toast && <div className="toast">{toast}</div>}
-      </div>
-    </>
+function renderLang() {
+  return h('div', {className:'card', style:{textAlign:'center', padding:'3rem 2rem'}},
+    h('h2', {style:{marginBottom:'2rem'}}, t("langSelect")),
+    h('div', {style:{display:'flex', gap:'1.5rem', justifyContent:'center', flexWrap:'wrap'}},
+      h('div', {className:'device-card', style:{width:'180px', padding:'2rem 1rem', cursor:'pointer'}, onClick:()=>{ state.lang='de'; state.step='customer'; render(); }},
+        h('div', {style:{fontSize:'3.5rem', marginBottom:'.8rem'}}, '🇩🇪'),
+        h('div', {className:'label', style:{fontSize:'1.1rem'}}, 'Deutsch')
+      ),
+      h('div', {className:'device-card', style:{width:'180px', padding:'2rem 1rem', cursor:'pointer'}, onClick:()=>{ state.lang='en'; state.step='customer'; render(); }},
+        h('div', {style:{fontSize:'3.5rem', marginBottom:'.8rem'}}, '🇬🇧'),
+        h('div', {className:'label', style:{fontSize:'1.1rem'}}, 'English')
+      )
+    )
   );
 }
 
+function renderCustomer() {
+  const fields = [
+    {key:'name', label:t("name"), type:'text', req:true},
+    {key:'firma', label:t("firma"), type:'text', req:true},
+    {key:'einsatzort', label:t("einsatzort"), type:'text', req:true},
+    {key:'telefon', label:t("telefon"), type:'tel', req:true}
+  ];
+  return h('div', {className:'card'},
+    h('div', {className:'step-label'}, t("stepCustomer")),
+    h('h2', {}, t("stepCustomerTitle")),
+    h('div', {className:'field'},
+      h('label', {}, t("geraeteNr"), ' ', h('span', {style:{color:'var(--muted)', fontWeight:400}}, t("geraeteNrOpt"))),
+      (() => {
+        const inp = h('input', {type:'text', placeholder:'z. B. GL-12345', value: state.customer.geraeteNr});
+        inp.addEventListener('input', e => { state.customer.geraeteNr = e.target.value; });
+        return inp;
+      })()
+    ),
+    ...fields.map(f => {
+      const inp = h('input', {type: f.type, value: state.customer[f.key],
+        style: state.errors[f.key] ? {borderColor:'var(--warn)'} : {}});
+      inp.addEventListener('input', e => {
+        state.customer[f.key] = e.target.value;
+        if (state.errors[f.key]) { delete state.errors[f.key]; render(); }
+      });
+      return h('div', {className:'field'},
+        h('label', {}, f.label, f.req ? h('span', {className:'req'}, ' *') : null),
+        inp,
+        state.errors[f.key] ? h('div', {className:'field-error'}, '⚠ ', state.errors[f.key]) : null
+      );
+    }),
+    h('div', {className:'nav-row', style:{justifyContent:'space-between'}},
+      h('button', {className:'btn btn-outline', onClick:()=>{state.step='lang';render();}}, '🌐 ', state.lang==='de'?'Sprache':'Language'),
+      h('button', {className:'btn btn-primary', onClick:()=>{ if(validateCustomer()) {state.step='device';render();} else render(); }}, t("weiter"))
+    )
+  );
+}
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+function renderDevice() {
+  const devs = state.lang === 'en' ? DEVICES_EN : DEVICES;
+  return h('div', {className:'card'},
+    h('div', {className:'step-label'}, t("stepDevice")),
+    h('h2', {}, t("stepDeviceTitle")),
+    h('div', {className:'device-grid'},
+      ...devs.map(d =>
+        h('div', {className:'device-card'+(d.urgent?' urgent':''), onClick:()=>selectDevice(d.id)},
+          h('div', {className:'icon'}, d.icon),
+          h('div', {className:'label'}, d.label),
+          d.code ? h('div', {className:'code'}, d.code) : null,
+          d.urgent ? h('span', {className:'urgency-badge'}, t("dringend")) : null
+        )
+      )
+    ),
+    h('div', {className:'nav-row'},
+      h('button', {className:'btn btn-outline', onClick:()=>{state.step='customer';render();}}, t("zurueck"))
+    )
+  );
+}
+
+function renderSubcategory() {
+  return h('div', {className:'card'},
+    h('div', {className:'step-label'}, t("stepSub")),
+    h('h2', {}, t("stepSubTitle")),
+    h('div', {className:'sub-pills'},
+      h('div', {className:'pill', onClick:()=>{state.subCat='elektro';state.step='fault';render();}}, t("elektro")),
+      h('div', {className:'pill', onClick:()=>{state.subCat='diesel';state.step='fault';render();}}, t("diesel"))
+    ),
+    h('div', {className:'nav-row'},
+      h('button', {className:'btn btn-outline', onClick:()=>{state.step='device';render();}}, t("zurueck"))
+    )
+  );
+}
+
+function renderFault() {
+  const qs = getQS();
+  if (!qs) return h('div', {}, 'Fehler: Keine Fragen gefunden');
+  const stepLabel = (state.deviceId==='GS'||state.deviceId==='GGGT') ? t("stepFault4") : t("stepFault3");
+  return h('div', {className:'card'},
+    h('div', {className:'step-label'}, stepLabel),
+    h('h2', {}, t("stepFaultTitle")),
+    h('div', {className:'fault-list'},
+      ...qs.faults.map((f, i) =>
+        h('div', {className:'fault-item', onClick:()=>startFault(f.id)},
+          h('span', {className:'fault-num'}, String(i+1)),
+          f.label
+        )
+      ),
+      h('div', {className:'fault-item', onClick:()=>{state.faultId='sonstiger';state.sonstigerText='';state.extraPhotos=[];state.step='sonstiger';render();}},
+        h('span', {className:'fault-num', style:{background:'#e8e4dc', color:'var(--muted)'}}, '✎'),
+        t("sonstigerFehler")
+      )
+    ),
+    h('div', {className:'nav-row'},
+      h('button', {className:'btn btn-outline', onClick:()=>{
+        state.step = (state.deviceId==='GS'||state.deviceId==='GGGT') ? 'subcategory' : 'device';
+        render();
+      }}, t("zurueck"))
+    )
+  );
+}
+
+function renderSonstiger() {
+  const ta = h('textarea', {rows:'5', placeholder: t("fehlerbeschreibungPH"),
+    style:{width:'100%',padding:'.65rem .9rem',border:'1.5px solid var(--border)',borderRadius:'var(--radius)',fontFamily:'inherit',fontSize:'.9rem',background:'var(--bg)',color:'var(--text)',resize:'vertical',outline:'none'}});
+  ta.value = state.sonstigerText;
+  ta.addEventListener('input', e => { state.sonstigerText = e.target.value; });
+
+  const fileInput = h('input', {type:'file', accept:'image/*', multiple:'true', style:{display:'none'}});
+  fileInput.addEventListener('change', e => {
+    Array.from(e.target.files).forEach(f => {
+      const reader = new FileReader();
+      reader.onload = ev => { state.extraPhotos = [...state.extraPhotos, ev.target.result]; render(); };
+      reader.readAsDataURL(f);
+    });
+  });
+
+  const previewDiv = h('div', {className:'img-preview'},
+    ...state.extraPhotos.map(src => h('img', {src, alt:'foto', className:'img-thumb'}))
+  );
+
+  return h('div', {className:'card'},
+    h('div', {className:'step-label'}, t("sonstigerFehler")),
+    h('h2', {}, t("stepSonstigerTitle")),
+    h('p', {className:'muted', style:{marginBottom:'1.2rem'}}, t("stepSonstigerSub")),
+    h('div', {className:'field'},
+      h('label', {}, t("fehlerbeschreibung"), h('span', {className:'req'}, ' *')),
+      ta
+    ),
+    h('div', {className:'field'},
+      h('label', {}, t("fotosHochladen"), ' ', h('span', {style:{color:'var(--muted)',fontWeight:400}}, t("fotosOpt"))),
+      h('button', {className:'btn btn-outline btn-sm', style:{marginTop:'.3rem'}, onClick:()=>fileInput.click()}, t("fotosHochladen")),
+      fileInput,
+      state.extraPhotos.length > 0 ? previewDiv : null
+    ),
+    h('div', {className:'nav-row'},
+      h('button', {className:'btn btn-outline', onClick:()=>{state.step='fault';render();}}, t("zurueck")),
+      h('button', {className:'btn btn-primary', onClick:()=>{
+        if (!state.sonstigerText.trim()) return;
+        state.qaLog = [{questionText: state.lang==='en'?'Fault description (Other fault)':'Fehlerbeschreibung (Sonstiger Fehler)', answerLabel: state.sonstigerText, actionTaken: null, errorCode: '', photos: state.extraPhotos}];
+        state.conclusion = {text: state.lang==='en'?'Other fault – final report created':'Sonstiger Fehler – Abschlussprotokoll erstellt', type:'warn'};
+        state.step = 'report'; render();
+      }}, t("berichtErstellen"))
+    )
+  );
+}
+
+function renderQuestions() {
+  const currentQ = getCurrentQ();
+  const cf = getCurrentFault();
+  const qs = getQS();
+  const isDisplayError = currentQ && (currentQ.extraCode || currentQ.extraPhoto);
+
+  const parts = [];
+
+  // Previous answers summary
+  if (state.qaLog.length > 0) {
+    parts.push(h('div', {className:'card', style:{marginBottom:'1rem'}},
+      h('div', {className:'step-label'}, t("bisherigeAntworten")),
+      ...state.qaLog.map((qa, i) =>
+        h('div', {style:{marginBottom:'.4rem', fontSize:'.85rem'}},
+          h('span', {style:{fontWeight:600}}, `${t("frage")} ${i+1}: `), qa.questionText, ' → ',
+          h('span', {style:{color:'var(--accent)', fontWeight:600}}, qa.answerLabel)
+        )
+      )
+    ));
+  }
+
+  // Current question
+  if (currentQ && !state.followUpState) {
+    parts.push(h('div', {className:'question-block'},
+      h('div', {className:'question-text'}, currentQ.text),
+      ...(() => {
+        if (isDisplayError && !state.showExtraInputs) {
+          return [
+            h('div', {className:'answer-btns'},
+              h('button', {className:'ans-btn ja', onClick:()=>{ state.showExtraInputs=true; render(); }}, 'Ja'),
+              h('button', {className:'ans-btn nein', onClick:()=>{
+                logQA(currentQ.text, 'Nein', null, '', []);
+                const neinAns = currentQ.answers.find(a => a.label.startsWith('Nein') || a.label.startsWith('No'));
+                if (neinAns?.conclusion) { state.conclusion={text:neinAns.conclusion,type:neinAns.conclusionType}; state.step='report'; render(); }
+              }}, 'Nein')
+            )
+          ];
+        } else if (isDisplayError && state.showExtraInputs) {
+          const codeInp = currentQ.extraCode ? (() => {
+            const inp = h('input', {type:'text', placeholder: t("fehlercodePH"), value: state.extraCode});
+            inp.addEventListener('input', e => { state.extraCode = e.target.value; });
+            return inp;
+          })() : null;
+
+          const fileInp = h('input', {type:'file', accept:'image/*', multiple:'true', style:{display:'none'}});
+          fileInp.addEventListener('change', e => {
+            Array.from(e.target.files).forEach(f => {
+              const reader = new FileReader();
+              reader.onload = ev => { state.extraPhotos = [...state.extraPhotos, ev.target.result]; render(); };
+              reader.readAsDataURL(f);
+            });
+          });
+
+          return [
+            h('div', {className:'extra-area'},
+              codeInp,
+              currentQ.extraPhoto ? h('button', {className:'btn btn-outline btn-sm', onClick:()=>fileInp.click()}, t("fotosHochladen")) : null,
+              currentQ.extraPhoto ? fileInp : null,
+              state.extraPhotos.length > 0 ? h('div', {className:'img-preview'}, ...state.extraPhotos.map(src=>h('img',{src,alt:'foto',className:'img-thumb'}))) : null
+            ),
+            h('div', {style:{marginTop:'1rem'}},
+              h('button', {className:'btn btn-primary', onClick:()=>{
+                const jaAns = currentQ.answers.find(a => a.label.startsWith('Ja') || a.label.startsWith('Yes'));
+                handleFinalAnswer(currentQ, jaAns || currentQ.answers[1] || currentQ.answers[0]);
+                state.showExtraInputs = false;
+              }}, t("diagnoseAbschliessen"))
+            )
+          ];
+        } else {
+          return [
+            h('div', {className:'answer-btns'},
+              ...currentQ.answers.map(ans => {
+                const isJa = ans.label.startsWith('Ja') || ans.label.startsWith('Yes');
+                const isNein = ans.label.startsWith('Nein') || ans.label.startsWith('No');
+                const cls = isJa ? 'ja' : isNein ? 'nein' : 'other';
+                return h('button', {className:`ans-btn ${cls}`, onClick:()=>handleAnswer(currentQ, ans)}, ans.label);
+              })
+            )
+          ];
+        }
+      })()
+    ));
+  }
+
+  // Follow-up phase 1
+  if (state.followUpState && state.followUpState.phase === 1) {
+    const {ans, q} = state.followUpState;
+    parts.push(h('div', {className:'question-block'},
+      h('div', {className:'action-banner'},
+        h('strong', {}, t("massnahmeDurchfuehren")), ans.action
+      ),
+      h('div', {className:'question-text', style:{marginTop:'1rem'}}, ans.followUpText || "Ist die Funktion jetzt gegeben?"),
+      h('div', {className:'answer-btns'},
+        h('button', {className:'ans-btn ja', onClick:()=>handleFollowUpAnswer(q, {label:'Ja'})}, 'Ja'),
+        h('button', {className:'ans-btn nein', onClick:()=>handleFollowUpAnswer(q, {label:'Nein'})}, 'Nein')
+      )
+    ));
+  }
+
+  // Follow-up phase 2
+  if (state.followUpState && state.followUpState.phase === 2) {
+    const {ans, q} = state.followUpState;
+    parts.push(h('div', {className:'question-block'},
+      h('div', {className:'question-text'}, ans.followUpYesFollowUp2Text),
+      h('div', {className:'answer-btns'},
+        h('button', {className:'ans-btn ja', onClick:()=>handleFollowUpAnswer(q, {label:'Ja'})}, 'Ja'),
+        h('button', {className:'ans-btn nein', onClick:()=>handleFollowUpAnswer(q, {label:'Nein'})}, 'Nein')
+      )
+    ));
+  }
+
+  parts.push(h('div', {className:'nav-row'},
+    h('button', {className:'btn btn-outline', onClick:goBack}, t("zurueck")),
+    h('button', {className:'btn btn-outline', onClick:resetAll}, t("neueMeldung"))
+  ));
+
+  return h('div', {}, ...parts);
+}
+
+function renderReport() {
+  const devList = state.lang === 'en' ? DEVICES_EN : DEVICES;
+  const devLabel = devList.find(d => d.id === state.deviceId)?.label || '';
+  const cf = getCurrentFault();
+  const subLabel = state.subCat ? (state.subCat === 'elektro' ? t("elektroLabel") : t("dieselLabel")) : '';
+  const faultLabel = state.faultId === 'sonstiger' ? t("sonstigerFehler") : (cf?.label || '');
+
+  const emailInp = h('input', {type:'email', placeholder:'kundendienst@firma.de', value: state.email, style:{marginTop:'.3rem'}});
+  emailInp.addEventListener('input', e => { state.email = e.target.value; });
+
+  const bemTA = h('textarea', {rows:'4', placeholder: t("bemerkungenPH"),
+    style:{marginTop:'.3rem', width:'100%', padding:'.65rem .9rem', border:'1.5px solid var(--border)', borderRadius:'var(--radius)', fontFamily:'inherit', fontSize:'.9rem', background:'var(--bg)', color:'var(--text)', resize:'vertical', outline:'none'}});
+  bemTA.value = state.bemerkung;
+  bemTA.addEventListener('input', e => { state.bemerkung = e.target.value; });
+
+  return h('div', {className:'card'},
+    h('div', {className:'step-label'}, t("reportTitle")),
+    h('h2', {}, t("diagnoseAbgeschlossen")),
+    state.conclusion ? h('div', {className:`conclusion-banner ${state.conclusion.type}`, style:{marginBottom:'1.5rem'}},
+      state.conclusion.type === 'warn' ? '⚠ ' : '✓ ', state.conclusion.text) : null,
+
+    // Customer
+    h('div', {className:'report-section'},
+      h('h3', {}, t("kundendaten")),
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, 'Gerätenummer'), h('span', {className:'report-val'}, state.customer.geraeteNr || '–')),
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, 'Name'), h('span', {className:'report-val'}, state.customer.name)),
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, 'Firma'), h('span', {className:'report-val'}, state.customer.firma)),
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, 'Einsatzort'), h('span', {className:'report-val'}, state.customer.einsatzort)),
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, 'Telefon'), h('span', {className:'report-val'}, state.customer.telefon))
+    ),
+
+    // Device
+    h('div', {className:'report-section'},
+      h('h3', {}, t("geraet")),
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, t("geraetetyp")), h('span', {className:'report-val'}, devLabel)),
+      subLabel ? h('div', {className:'report-row'}, h('span', {className:'report-label'}, t("antrieb")), h('span', {className:'report-val'}, subLabel)) : null,
+      h('div', {className:'report-row'}, h('span', {className:'report-label'}, t("stoerungstyp")), h('span', {className:'report-val'}, faultLabel))
+    ),
+
+    // Diagnosis log
+    h('div', {className:'report-section'},
+      h('h3', {}, t("diagnoseprotokoll")),
+      ...state.qaLog.map((qa, i) =>
+        h('div', {style:{marginBottom:'.9rem', paddingBottom:'.9rem', borderBottom:'1px dotted var(--border)'}},
+          h('div', {className:'report-row'}, h('span', {className:'report-label'}, `${t("frage")} ${i+1}`), h('span', {className:'report-val'}, qa.questionText)),
+          h('div', {className:'report-row'}, h('span', {className:'report-label'}, t("antwort")), h('span', {className:'report-val'}, h('strong', {}, qa.answerLabel))),
+          qa.actionTaken ? h('div', {className:'report-row'}, h('span', {className:'report-label'}, t("massnahme")), h('span', {className:'report-val', style:{color:'#27ae60'}}, qa.actionTaken)) : null,
+          qa.errorCode ? h('div', {className:'report-row'}, h('span', {className:'report-label'}, t("fehlercode")), h('span', {className:'report-val'}, qa.errorCode)) : null,
+          qa.photos?.length > 0 ? h('div', {className:'report-row'},
+            h('span', {className:'report-label'}, t("fotos")),
+            h('div', {className:'img-preview'}, ...qa.photos.map((src,j)=>h('img',{src,alt:'foto',className:'img-thumb'})))
+          ) : null
+        )
+      )
+    ),
+
+    // Result
+    h('div', {className:'report-section'},
+      h('h3', {}, t("ergebnis")),
+      state.conclusion ? h('div', {className:`conclusion-banner ${state.conclusion.type}`}, state.conclusion.type==='ok'?'✓ ':'⚠ ', state.conclusion.text) : null
+    ),
+
+    // Remarks
+    state.bemerkung.trim() ? h('div', {className:'report-section'},
+      h('h3', {}, t("bemerkungenTitle")),
+      h('div', {style:{background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:'1rem', fontSize:'.9rem', lineHeight:'1.6', whiteSpace:'pre-wrap'}}, state.bemerkung)
+    ) : null,
+
+    h('div', {style:{marginTop:'1.5rem'}},
+      h('label', {}, t("bemerkungen"), ' ', h('span', {style:{color:'var(--muted)',fontWeight:400}}, t("bemerkungenOpt"))),
+      bemTA
+    ),
+    h('div', {style:{marginTop:'1.5rem'}},
+      h('label', {}, t("sendAn"), h('span', {className:'req'}, ' *')),
+      emailInp
+    ),
+    h('div', {className:'nav-row'},
+      h('button', {className:'btn btn-outline', onClick:goBack}, t("zurueck")),
+      h('button', {className:'btn btn-outline', onClick:resetAll}, t("neueMeldung")),
+      h('button', {className:'btn btn-success', onClick:handleSend}, t("berichtSenden"))
+    )
+  );
+}
+
+function renderSendDone() {
+  return h('div', {className:'card', style:{textAlign:'center', padding:'3rem 2rem'}},
+    h('div', {style:{fontSize:'3rem', marginBottom:'1rem'}}, '✅'),
+    h('h2', {}, t("sendDoneTitle")),
+    h('p', {className:'muted', style:{margin:'1rem 0'}}, t("sendDoneSub"), ' ', h('strong', {}, state.email), ' ', t("sendDoneSub2")),
+    h('button', {className:'btn btn-primary', style:{marginTop:'1rem'}, onClick:resetAll}, t("neueStorung"))
+  );
+}
+
+function render() {
+  const root = document.getElementById('root');
+  root.innerHTML = '';
+
+  const appShell = h('div', {className:'app-shell'},
+    h('div', {className:'app-header'},
+      h('h1', {}, t("appTitle")),
+      h('p', {}, t("appSub"))
+    ),
+    progressBar(),
+    (() => {
+      switch(state.step) {
+        case 'lang': return renderLang();
+        case 'customer': return renderCustomer();
+        case 'device': return renderDevice();
+        case 'subcategory': return renderSubcategory();
+        case 'fault': return renderFault();
+        case 'sonstiger': return renderSonstiger();
+        case 'questions': return renderQuestions();
+        case 'report': return renderReport();
+        case 'send': return renderSendDone();
+        default: return renderLang();
+      }
+    })(),
+    state.toast ? h('div', {className:'toast'}, state.toast) : null
+  );
+
+  root.appendChild(appShell);
+}
+
+// Boot
+render();
   </script>
 </body>
 </html>

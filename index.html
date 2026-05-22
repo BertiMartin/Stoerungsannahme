@@ -302,7 +302,7 @@ input:focus, textarea:focus { border-color: var(--accent); background: #fff; }
 }
 
 /* Nav row */
-.nav-row { display: flex; gap: .8rem; justify-content: space-between; margin-top: 1.5rem; align-items: center; }
+.nav-row { display: flex; gap: .6rem; justify-content: space-between; margin-top: 1.5rem; align-items: center; flex-wrap: wrap; }
 
 /* Image preview */
 .img-preview { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
@@ -2183,10 +2183,12 @@ function renderReport() {
       h('label', {}, t("sendAn"), h('span', {className:'req'}, ' *')),
       emailInp
     ),
-    h('div', {className:'nav-row'},
-      h('button', {className:'btn btn-outline', onClick:goBack}, t("zurueck")),
-      h('button', {className:'btn btn-outline', onClick:resetAll}, t("neueMeldung")),
-      h('button', {className:'btn btn-success', onClick:handleSend}, t("berichtSenden"))
+    h('div', {className:'nav-row', style:{flexDirection:'column', alignItems:'stretch', gap:'.6rem'}},
+      h('div', {style:{display:'flex', gap:'.6rem'}},
+        h('button', {className:'btn btn-outline', onClick:goBack}, t("zurueck")),
+        h('button', {className:'btn btn-outline', onClick:resetAll}, t("neueMeldung"))
+      ),
+      h('button', {className:'btn btn-success', style:{width:'100%', justifyContent:'center'}, onClick:handleSend}, t("berichtSenden"))
     )
   );
 }

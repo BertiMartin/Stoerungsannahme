@@ -1755,6 +1755,41 @@ function buildMailBody() {
   if (state.bemerkung.trim()) body += `\n\n${isEn?"CUSTOMER REMARKS":"BEMERKUNG"}:\n${state.bemerkung}`;
   return body;
 }
+function handleCreateTicket() {
+  const isEn = state.lang === 'en';
+  const devList = isEn ? DEVICES_EN : DEVICES;
+  const devLabel = devList.find(d => d.id === state.deviceId)?.label || state.deviceId || '';
+  const cf = getCurrentFault();
+  const faultLabel = state.faultId === 'sonstiger' ? t("sonstigerFehler") : (cf?.label || '');
+  const title = `${devLabel}${faultLabel?' – '+faultLabel:''}`;
+  const prio = state.conclusion?.type === 'warn' ? 'high' : 'medium';
+  const urgentPrio = state.deviceId === 'URGENT' || state.faultId === 'dringend' ? 'urgent' : prio;
+
+  // Build diagnosis log
+  let log = '';
+  state.qaLog.forEach((qa, i) => {
+    log += `F${i+1}: ${qa.questionText} → ${qa.answerLabel}`;
+    if (qa.actionTaken) log += ` | Maßnahme: ${qa.actionTaken}`;
+    log += '\n';
+  });
+  if (state.conclusion) log += `\nErgebnis: ${state.conclusion.text}`;
+
+  const params = new URLSearchParams({
+    action: 'new',
+    title: title || 'Störungsmeldung',
+    priority: urgentPrio,
+    device: devLabel,
+    customer: state.customer.name,
+    company: state.customer.firma,
+    location: state.customer.einsatzort,
+    phone: state.customer.telefon,
+    desc: state.bemerkung || `Störungstyp: ${faultLabel}\nErgebnis: ${state.conclusion?.text||''}`,
+    log: log,
+  });
+  window.open('tickets.html?' + params.toString(), '_blank');
+  showToast(isEn ? 'Ticket system opened ✓' : 'Ticket-System geöffnet ✓');
+}
+
 function handleSend() {
   if (!state.email.trim()) { showToast("Bitte E-Mail-Adresse eingeben"); return; }
   const body = buildMailBody();
@@ -2186,7 +2221,8 @@ function renderReport() {
     h('div', {className:'nav-row'},
       h('button', {className:'btn btn-outline', onClick:goBack}, t("zurueck")),
       h('button', {className:'btn btn-outline', onClick:resetAll}, t("neueMeldung")),
-      h('button', {className:'btn btn-success', onClick:handleSend}, t("berichtSenden"))
+      h('button', {className:'btn btn-success', onClick:handleSend}, t("berichtSenden")),
+    h('button', {className:'btn btn-ticket', onClick:handleCreateTicket}, t("ticketErstellen"))
     )
   );
 }
